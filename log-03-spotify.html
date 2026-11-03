@@ -1,85 +1,909 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Driving the installed Spotify app with deep links and media keys, guarded against a model that invents artists.">
-<meta name="theme-color" content="#FFF4E6">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%90%B1%3C/text%3E%3C/svg%3E">
-<title>Controlling Spotify without an API · Shaarvari S</title>
-<script>document.documentElement.classList.add("js");</script>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <meta
+    name="description"
+    content="Driving the installed Spotify app with deep links and media keys, guarded against a model that invents artists."
+  >
+
+  <meta name="theme-color" content="#FFF4E6">
+
+  <link
+    rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%90%B1%3C/text%3E%3C/svg%3E"
+  >
+
+  <title>Controlling Spotify Reliably · Shaarvari S</title>
+
+  <script>
+    document.documentElement.classList.add("js");
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  >
+
+  <link rel="stylesheet" href="styles.css">
 </head>
+
 <body data-page="log">
-<header class="top"><div class="bar"><a class="brand" href="index.html"><svg class="cat mascot-head" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><span>Shaarvari S</span></a><nav aria-label="Main"><a href="index.html#about">About</a><a href="index.html#experience">Experience</a><a href="index.html#log">Build Log</a><a href="index.html#projects">Projects</a><a href="index.html#open-source">Open Source</a><a href="index.html#skills">Skills</a><a href="index.html#contact">Contact</a></nav></div></header>
-<main>
-<article class="post"><a class="crumb" href="index.html#log">&larr; Build Log</a><header class="post-head" data-reveal><p class="meta mono">03 &middot; Integration &middot; LocaLL</p><h1>Controlling Spotify Reliably: From API-Free Automation to Search-First Playback</h1><p class="lede">The network resolves the track. The device plays it. A read-only Spotify Web API integration identifies spoken requests, while Android intents and media-button events handle playback and Room stores listening history locally.</p></header><section class="block" data-reveal><h2>1. Starting without an APIThe original implementation used two Android mechanisms to control Spotify.Playback navigation through deep linksFor known tracks, LocaLL opens a Spotify URI using an ACTION_VIEW intent explicitly targeting com.spotify.music.spotify:track:<track-id>For unknown tracks, it can open Spotify search:spotify:search:<query>Playback controls through media-button eventsPause, resume, skip, and replay are sent through AudioManager.dispatchMediaKeyEvent().Android routes these events through its media-key handling system rather than sending them directly to Spotify. This avoids a Spotify SDK or API integration, but it also means delivery depends on Android's current media-key routing and active media session. Another app's media session can take priority, and background execution does not guarantee that Spotify receives every event.I treat these commands as best-effort rather than assuming that dispatching an event means playback state has changed.The approach was simple: open Spotify with the requested track and use media keys to control playback.Then I started testing it with actual voice commands.</h2><p></p></section><section class="block" data-reveal><h2>2. Opening a track doesn't necessarily play itThe first problem was that opening a spotify:track: URI only navigated Spotify to the requested song.On the Spotify builds I tested, the track loaded into the player in a paused state. The deep link worked, but no music started.There was no reliable play parameter to add to the URI, so I separated navigation from playback.After opening the track, LocaLL sends a MEDIA_PLAY event. Since Spotify might still be cold-starting, the event is sent through spaced retries.fun playUri(uri: String): Boolean { if (!openSpotify(Uri.parse(uri))) return false scope.launch { // Spaced retries to cover a cold Spotify launch. for (waitMs in longArrayOf(1500, 1500, 2000)) { delay(waitMs) sendKey(KeyEvent.KEYCODE_MEDIA_PLAY) } } return true}The choice of key event matters.MEDIA_PLAY requests playback without toggling the current state. If Spotify has already started playing, another play request should not pause it.Using MEDIA_PLAY_PAUSE would be risky because it toggles playback. A retry could pause a track that had already started.These retries are still blind. They don't confirm that Spotify received the event or that audio actually started. They also cannot override Android's media-session routing decisions.</h2><p></p></section><section class="block" data-reveal><h2>3. The problem with unknown songsThe local catalogue could handle known songs, but it couldn't cover everything a user might ask for.For an unknown song, opening a spotify:search: URI only displays search results. It doesn't select or play anything.My first solution was to automate Spotify's search interface using an Android Accessibility service:Open Spotify search.Enter the requested query.Select the top result.The music module received this capability through a callback rather than depending directly on the Accessibility service.This worked, but it introduced another layer of fragility. Spotify could change its layout, the top result wasn't always the right one, and LocaLL had no reliable way to confirm whether the interaction succeeded.If Accessibility access was disabled, the app could only open search and ask the user to select a result manually.This was the point where the API-free approach started becoming a limitation.</h2><p></p></section><section class="block" data-reveal><h2>4. A small API integration to solve track resolutionInstead of trying to make UI automation more reliable, I changed the architecture.LocaLL now uses the Spotify Web API's search endpoint to resolve a spoken request to a concrete track URI.The API is used for one purpose: finding out which Spotify track matches the request.It does not start playback, pause music, skip tracks, or control the media session.The flow is:Receive the spoken request.Search Spotify using the request.Extract the matching track's URI.Pass that URI to the existing playUri() implementation.Let Android handle opening Spotify and starting playback.The API integration uses the client-credentials grant. It obtains an application access token without requiring the user to log in or grant account permissions through a user-consent screen.The resolver is also optional:val isConfigured: Boolean get() = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank() && BuildConfig.SPOTIFY_CLIENT_SECRET.isNotBlank()suspend fun resolveTrack(query: String): Track? { if (!isConfigured) return null val token = accessToken() ?: return null return search(token, query)}Credentials are kept in local.properties, which is git-ignored, and injected into BuildConfig at build time.There is an important security trade-off here. This is a personal project that I build and install directly on my own device, so bundling the client credentials into the APK is acceptable for my current use case. However, local.properties only prevents accidental source-control commits. It does not protect the secret once the APK is distributed; someone can extract it from the application.For a public app, the client secret should stay on a backend that proxies the search request. If the app needs user-authorized Spotify access, an appropriate user authorization flow such as Authorization Code with PKCE would be needed instead.If the credentials are missing or resolution fails, the resolver returns null and LocaLL falls back to its original API-free paths.The API improves track resolution without becoming a requirement for the rest of the feature.</h2><p></p></section><section class="block" data-reveal><h2>5. Resolution order: deterministic first, best-effort lastWith the API integration, MusicCommandHandler follows a resolution order that prioritizes known information before falling back to less reliable approaches.OrderResolution pathResult1Local catalogueKnown track URI2Spotify Web API searchMatching track URI3Local LLM extracts title and artist, followed by another resolution attemptTrack URI if matched4Accessibility search automationBest-effort selection5Open Spotify search screenUser selects manuallyThe local catalogue is no longer the limit of what LocaLL can play. It acts as an offline seed for common tracks.The API handles requests outside that catalogue. Accessibility automation remains a fallback when API resolution isn't available, and opening the search screen is the final fallback.Regardless of which path produces the URI, playback goes through the same playUri() implementation.That separation is important: track resolution has multiple possible sources, but playback has one shared path.</h2><p></p></section><section class="block" data-reveal><h2>6. Keeping a 1B model from inventing artistsThe local model can extract structured information such as title and artist from a spoken request.However, a small model can confidently attach an artist that was never mentioned. Passing that guess directly into a search query can produce completely unrelated results.I added three safeguards in MusicCommandHandler.kt.Catalogue fast pathKnown songs are matched locally and played without loading the model. This avoids unnecessary inference for requests that can already be resolved.Search using the raw transcriptThe first API search uses the original spoken request, not the model-generated title and artist fields.This is important because the raw transcript represents what the user actually said. The model shouldn't get an opportunity to change the request before the first search.Validate extracted artistsThe artistWasSpoken() check verifies that an extracted artist actually appears in the transcript. If it doesn't, the artist is discarded.The model is now a fallback for splitting the request into title and artist when the initial raw search doesn't resolve it. It is no longer the first or only interpretation of the user's request.</h2><p></p></section><section class="block" data-reveal><h2>7. Remembering the last trackThere was another problem with relying entirely on media-button events.Commands such as "play it again" don't contain a track URI. Sending MEDIA_PREVIOUS isn't necessarily the same as replaying the last requested track, and the active media session might no longer be available.For short-term context, I added a deterministic MusicSession that remembers the last track's exact URI for five minutes.This allows follow-up commands such as:"Play it again.""Play that song.""Play something else."The app can resolve references to the previous track without asking the model to infer the song again.Search-first resolution also made it possible to introduce a longer-term listening history.</h2><p></p></section><section class="block" data-reveal><h2>8. Building a local listening historyEvery successfully resolved track provides a title, artist, and Spotify URI.LocaLL stores this information in an on-device Room database. There is no listening-history backend; the history stays on the device.Once tracks are stored locally, frequency and recency become simple database queries rather than language-model problems.This enables commands such as:"Play my most played" — retrieves the most-requested track."Play my favourite artist" — retrieves the artist with the highest total request count."Play what I was listening to" — retrieves the most recent play.Each result resolves to a stored URI and goes through the same playback path.A fixed catalogue could never answer questions about what the user listened to yesterday. A local history built through actual usage can.ResultThe final implementation separates track resolution, playback, and listening history.ComponentResponsibilityNetworkLocal catalogueResolve known tracks offlineNoneSpotify Web API /v1/searchResolve requests to track URIsRead-onlySpotify deep linksOpen tracks by URINoneMedia-button eventsControl playbackNoneAccessibility serviceFallback search and selectionNoneLocal LLMExtract title and artist when neededNoneMusicSessionFive-minute follow-up contextNoneRoom listening historyStore plays and support personal queriesNoneWhat the final architecture achieves:No user login or user-consent flow.No API calls to start or control playback.One read-only search integration for resolving unknown tracks.Playback remains device-level and best-effort.API credentials are optional, with fallback to the original API-free implementation.Listening history stays on-device.What changedThe original goal was to avoid Spotify integration completely. That removed network dependencies, but it also meant relying on an external UI for something as basic as finding the right song.The final design uses the API only where it provides real value: resolving a spoken request to an exact track identity.Everything else remains on the device.The broader lesson is that avoiding an API isn't automatically the simplest or most reliable architecture. Sometimes a small, read-only integration can remove a much larger dependency on UI automation.For LocaLL, the right boundary turned out to be simple: use the API to identify the music, but keep playback and personal listening history under local control.</h2><p></p></section><section class="block" data-reveal><h2>The final boundary</h2><p>The API is used only to identify the music. Playback remains device-level and best-effort; personal listening history stays on-device. A small, read-only integration removed a larger dependency on UI automation without moving playback or personal data to a backend.</p><div class="takeaway"><strong>Takeaway</strong><p>Avoiding an API is not automatically the simplest or most reliable architecture. Use the API to identify the music, but keep playback and personal listening history under local control.</p></div></section><nav class="pager" aria-label="Build log pagination"><a href="log-02-local-model.html">&larr; Running a 1B Model on Android CPU</a><a href="log-04-gmail.html">Adding Gmail Without Betraying “Local” &rarr;</a></nav></article>
-</main>
-<footer><div class="wrap foot"><svg class="cat mascot-foot" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><p class="mono">&copy; <span class="yr"></span> Shaarvari S</p></div></footer>
-<script>
-(function(){
-  var header=document.querySelector('header.top');
-  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  function clamp(x){return Math.max(0,Math.min(1,x));}
 
-  // Boulder: follows the page scroll, eased so the motion is smooth
-  var ridge=document.getElementById('ridge');
-  var boulder=document.getElementById('boulder'), cat=document.getElementById('cat');
-  var L=ridge?ridge.getTotalLength():0, R=110, D=230, S0=400, S1=L-160;
-  var target=0, cur=0, running=false;
-  function at(s){return ridge.getPointAtLength(Math.max(0,Math.min(L,s)));}
-  function drawScene(p){
-    if(!ridge) return;
-    var s=S0+p*(S1-S0);
-    var a=at(s), b=at(s+1), tx=b.x-a.x, ty=b.y-a.y, len=Math.hypot(tx,ty)||1;
-    tx/=len; ty/=len;
-    var nx=ty, ny=-tx; if(ny>0){nx=-nx; ny=-ny;}
-    boulder.setAttribute('transform','translate('+(a.x+nx*R)+' '+(a.y+ny*R)+') rotate('+(s/R*180/Math.PI)+')');
-    var f=at(s-D), g=at(s-D+1), ang=Math.atan2(g.y-f.y,g.x-f.x)*180/Math.PI;
-    cat.setAttribute('transform','translate('+f.x+' '+f.y+') rotate('+ang+')');
-  }
+  <!-- Navigation -->
+  <header class="top">
+    <div class="bar">
 
-  // Content: each block rises in as it enters from the bottom and stays until it has left the top.
-  // It is computed from the scroll position every frame, so it works in both directions.
-  var blocks=[].slice.call(document.querySelectorAll('[data-reveal]'));
-  function drawBlocks(){
-    var vh=window.innerHeight;
-    blocks.forEach(function(el){
-      if(reduce){el.style.opacity=1; el.style.transform='none'; return;}
-      var r=el.getBoundingClientRect();
-      var o=clamp((vh-r.top)/(vh*0.3));
-      el.style.opacity=o;
-      el.style.transform='translateY('+((1-o)*36)+'px)';
-    });
-  }
+      <a class="brand" href="index.html">
+        <svg
+          class="cat mascot-head"
+          viewBox="0 0 220 200"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <g class="tail" fill="none" stroke-linecap="round">
+            <path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/>
+            <path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/>
+          </g>
 
-  function frame(){
-    var max=document.documentElement.scrollHeight-window.innerHeight;
-    target=max>0?clamp(window.scrollY/max):0;
-    cur+=(target-cur)*0.12;
-    if(Math.abs(target-cur)<0.0004) cur=target;
-    drawScene(cur);
-    drawBlocks();
-    if(cur!==target){requestAnimationFrame(frame);} else {running=false;}
-  }
-  function kick(){
-    header.classList.toggle('scrolled',window.scrollY>8);
-    if(!running){running=true; requestAnimationFrame(frame);}
-  }
-  window.addEventListener('scroll',kick,{passive:true});
-  window.addEventListener('resize',kick);
-  kick();
+          <polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/>
+          <polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/>
 
-  // Navigation highlight on the home page
-  var links=document.querySelectorAll('header nav a');
-  if(document.body.dataset.page==='home' && 'IntersectionObserver' in window){
-    var map={};links.forEach(function(a){map[a.getAttribute('href').split('#')[1]]=a;});
-    var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&map[e.target.id]){links.forEach(function(a){a.classList.remove('active');});map[e.target.id].classList.add('active');}});},{rootMargin:'-45% 0px -50% 0px'});
-    document.querySelectorAll('section[id]').forEach(function(s){spy.observe(s);});
-  }
-  var yr=document.querySelector('.yr'); if(yr) yr.textContent=new Date().getFullYear();
-})();
-</script>
+          <polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/>
+          <polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/>
+
+          <ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/>
+
+          <g class="eyes">
+            <ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/>
+            <ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/>
+            <circle cx="82" cy="106" r="4" fill="#fff"/>
+            <circle cx="146" cy="106" r="4" fill="#fff"/>
+          </g>
+
+          <path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/>
+          <path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/>
+
+          <g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round">
+            <line x1="40" y1="128" x2="8" y2="122"/>
+            <line x1="40" y1="138" x2="8" y2="142"/>
+            <line x1="180" y1="128" x2="212" y2="122"/>
+            <line x1="180" y1="138" x2="212" y2="142"/>
+          </g>
+        </svg>
+
+        <span>Shaarvari S</span>
+      </a>
+
+      <nav aria-label="Main">
+        <a href="index.html#about">About</a>
+        <a href="index.html#experience">Experience</a>
+        <a href="index.html#log">Build Log</a>
+        <a href="index.html#projects">Projects</a>
+        <a href="index.html#open-source">Open Source</a>
+        <a href="index.html#skills">Skills</a>
+        <a href="index.html#contact">Contact</a>
+      </nav>
+
+    </div>
+  </header>
+
+
+  <!-- Article -->
+  <main>
+    <article class="post">
+
+      <a class="crumb" href="index.html#log">
+        &larr; Build Log
+      </a>
+
+      <!-- Article heading -->
+      <header class="post-head" data-reveal>
+
+        <p class="meta mono">
+          03 &middot; Integration &middot; LocaLL
+        </p>
+
+        <h1>
+          Controlling Spotify Reliably: From API-Free Automation to Search-First Playback
+        </h1>
+
+        <p class="lede">
+          The network resolves the track. The device plays it. A read-only
+          Spotify Web API integration identifies spoken requests, while
+          Android intents and media-button events handle playback and Room
+          stores listening history locally.
+        </p>
+
+      </header>
+
+
+      <!-- Section 1 -->
+      <section class="block" data-reveal>
+
+        <h2>1. Starting without an API</h2>
+
+        <p>
+          The original implementation used two Android mechanisms to control Spotify.
+        </p>
+
+        <h3>Playback navigation through deep links</h3>
+
+        <p>
+          For known tracks, LocaLL opens a Spotify URI using an
+          <code>ACTION_VIEW</code> intent explicitly targeting
+          <code>com.spotify.music</code>:
+        </p>
+
+        <pre><code>spotify:track:&lt;track-id&gt;</code></pre>
+
+        <p>
+          For unknown tracks, it can open Spotify search:
+        </p>
+
+        <pre><code>spotify:search:&lt;query&gt;</code></pre>
+
+        <h3>Playback controls through media-button events</h3>
+
+        <p>
+          Pause, resume, skip, and replay are sent through
+          <code>AudioManager.dispatchMediaKeyEvent()</code>.
+        </p>
+
+        <p>
+          Android routes these events through its media-key handling system
+          rather than sending them directly to Spotify. This avoids a Spotify
+          SDK or API integration, but it also means delivery depends on
+          Android's current media-key routing and active media session.
+        </p>
+
+        <p>
+          Another app's media session can take priority, and background
+          execution does not guarantee that Spotify receives every event.
+        </p>
+
+        <p>
+          I treat these commands as best-effort rather than assuming that
+          dispatching an event means playback state has changed.
+        </p>
+
+        <p>
+          The approach was simple: open Spotify with the requested track and
+          use media keys to control playback. Then I started testing it with
+          actual voice commands.
+        </p>
+
+      </section>
+
+
+      <!-- Section 2 -->
+      <section class="block" data-reveal>
+
+        <h2>2. Opening a track doesn't necessarily play it</h2>
+
+        <p>
+          The first problem was that opening a
+          <code>spotify:track:</code> URI only navigated Spotify to the
+          requested song.
+        </p>
+
+        <p>
+          On the Spotify builds I tested, the track loaded into the player
+          in a paused state. The deep link worked, but no music started.
+        </p>
+
+        <p>
+          There was no reliable play parameter to add to the URI, so I
+          separated navigation from playback.
+        </p>
+
+        <p>
+          After opening the track, LocaLL sends a <code>MEDIA_PLAY</code>
+          event. Since Spotify might still be cold-starting, the event is
+          sent through spaced retries.
+        </p>
+
+        <pre><code>fun playUri(uri: String): Boolean {
+    if (!openSpotify(Uri.parse(uri))) return false
+
+    scope.launch {
+        // Spaced retries to cover a cold Spotify launch.
+        for (waitMs in longArrayOf(1500, 1500, 2000)) {
+            delay(waitMs)
+            sendKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+        }
+    }
+
+    return true
+}</code></pre>
+
+        <p>
+          The choice of key event matters.
+        </p>
+
+        <p>
+          <code>MEDIA_PLAY</code> requests playback without toggling the
+          current state. If Spotify has already started playing, another
+          play request should not pause it.
+        </p>
+
+        <p>
+          Using <code>MEDIA_PLAY_PAUSE</code> would be risky because it
+          toggles playback. A retry could pause a track that had already
+          started.
+        </p>
+
+        <p>
+          These retries are still blind. They don't confirm that Spotify
+          received the event or that audio actually started. They also
+          cannot override Android's media-session routing decisions.
+        </p>
+
+      </section>
+
+
+      <!-- Section 3 -->
+      <section class="block" data-reveal>
+
+        <h2>3. The problem with unknown songs</h2>
+
+        <p>
+          The local catalogue could handle known songs, but it couldn't
+          cover everything a user might ask for.
+        </p>
+
+        <p>
+          For an unknown song, opening a
+          <code>spotify:search:</code> URI only displays search results.
+          It doesn't select or play anything.
+        </p>
+
+        <p>
+          My first solution was to automate Spotify's search interface
+          using an Android Accessibility service:
+        </p>
+
+        <ol>
+          <li>Open Spotify search.</li>
+          <li>Enter the requested query.</li>
+          <li>Select the top result.</li>
+        </ol>
+
+        <p>
+          The music module received this capability through a callback
+          rather than depending directly on the Accessibility service.
+        </p>
+
+        <p>
+          This worked, but it introduced another layer of fragility.
+          Spotify could change its layout, the top result wasn't always
+          the right one, and LocaLL had no reliable way to confirm whether
+          the interaction succeeded.
+        </p>
+
+        <p>
+          If Accessibility access was disabled, the app could only open
+          search and ask the user to select a result manually.
+        </p>
+
+        <p>
+          This was the point where the API-free approach started becoming
+          a limitation.
+        </p>
+
+      </section>
+
+
+      <!-- Section 4 -->
+      <section class="block" data-reveal>
+
+        <h2>4. A small API integration to solve track resolution</h2>
+
+        <p>
+          Instead of trying to make UI automation more reliable, I changed
+          the architecture.
+        </p>
+
+        <p>
+          LocaLL now uses the Spotify Web API's search endpoint to resolve
+          a spoken request to a concrete track URI.
+        </p>
+
+        <p>
+          The API is used for one purpose: finding out which Spotify track
+          matches the request.
+        </p>
+
+        <p>
+          It does not start playback, pause music, skip tracks, or control
+          the media session.
+        </p>
+
+        <p>The flow is:</p>
+
+        <ol>
+          <li>Receive the spoken request.</li>
+          <li>Search Spotify using the request.</li>
+          <li>Extract the matching track's URI.</li>
+          <li>Pass that URI to the existing <code>playUri()</code> implementation.</li>
+          <li>Let Android handle opening Spotify and starting playback.</li>
+        </ol>
+
+        <p>
+          The API integration uses the client-credentials grant. It obtains
+          an application access token without requiring the user to log in
+          or grant account permissions through a user-consent screen.
+        </p>
+
+        <p>
+          The resolver is also optional:
+        </p>
+
+        <pre><code>val isConfigured: Boolean
+    get() = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank() &&
+        BuildConfig.SPOTIFY_CLIENT_SECRET.isNotBlank()
+
+suspend fun resolveTrack(query: String): Track? {
+    if (!isConfigured) return null
+
+    val token = accessToken() ?: return null
+    return search(token, query)
+}</code></pre>
+
+        <p>
+          Credentials are kept in <code>local.properties</code>, which is
+          git-ignored, and injected into <code>BuildConfig</code> at build
+          time.
+        </p>
+
+        <p>
+          There is an important security trade-off here. This is a personal
+          project that I build and install directly on my own device, so
+          bundling the client credentials into the APK is acceptable for my
+          current use case.
+        </p>
+
+        <p>
+          However, <code>local.properties</code> only prevents accidental
+          source-control commits. It does not protect the secret once the
+          APK is distributed; someone can extract it from the application.
+        </p>
+
+        <p>
+          For a public app, the client secret should stay on a backend that
+          proxies the search request. If the app needs user-authorized
+          Spotify access, an appropriate user authorization flow such as
+          Authorization Code with PKCE would be needed instead.
+        </p>
+
+        <p>
+          If the credentials are missing or resolution fails, the resolver
+          returns <code>null</code> and LocaLL falls back to its original
+          API-free paths.
+        </p>
+
+        <p>
+          The API improves track resolution without becoming a requirement
+          for the rest of the feature.
+        </p>
+
+      </section>
+
+
+      <!-- Section 5 -->
+      <section class="block" data-reveal>
+
+        <h2>5. Resolution order: deterministic first, best-effort last</h2>
+
+        <p>
+          With the API integration, <code>MusicCommandHandler</code>
+          follows a resolution order that prioritizes known information
+          before falling back to less reliable approaches.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Resolution path</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>Local catalogue</td>
+                <td>Known track URI</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Spotify Web API search</td>
+                <td>Matching track URI</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>Local LLM extracts title and artist, followed by another resolution attempt</td>
+                <td>Track URI if matched</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>Accessibility search automation</td>
+                <td>Best-effort selection</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td>Open Spotify search screen</td>
+                <td>User selects manually</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          The local catalogue is no longer the limit of what LocaLL can
+          play. It acts as an offline seed for common tracks.
+        </p>
+
+        <p>
+          The API handles requests outside that catalogue. Accessibility
+          automation remains a fallback when API resolution isn't available,
+          and opening the search screen is the final fallback.
+        </p>
+
+        <p>
+          Regardless of which path produces the URI, playback goes through
+          the same <code>playUri()</code> implementation.
+        </p>
+
+        <p>
+          That separation is important: track resolution has multiple
+          possible sources, but playback has one shared path.
+        </p>
+
+      </section>
+
+
+      <!-- Section 6 -->
+      <section class="block" data-reveal>
+
+        <h2>6. Keeping a 1B model from inventing artists</h2>
+
+        <p>
+          The local model can extract structured information such as title
+          and artist from a spoken request.
+        </p>
+
+        <p>
+          However, a small model can confidently attach an artist that was
+          never mentioned. Passing that guess directly into a search query
+          can produce completely unrelated results.
+        </p>
+
+        <p>
+          I added three safeguards in <code>MusicCommandHandler.kt</code>.
+        </p>
+
+        <h3>Catalogue fast path</h3>
+
+        <p>
+          Known songs are matched locally and played without loading the
+          model. This avoids unnecessary inference for requests that can
+          already be resolved.
+        </p>
+
+        <h3>Search using the raw transcript</h3>
+
+        <p>
+          The first API search uses the original spoken request, not the
+          model-generated title and artist fields.
+        </p>
+
+        <p>
+          This is important because the raw transcript represents what
+          the user actually said. The model shouldn't get an opportunity
+          to change the request before the first search.
+        </p>
+
+        <h3>Validate extracted artists</h3>
+
+        <p>
+          The <code>artistWasSpoken()</code> check verifies that an
+          extracted artist actually appears in the transcript. If it
+          doesn't, the artist is discarded.
+        </p>
+
+        <p>
+          The model is now a fallback for splitting the request into
+          title and artist when the initial raw search doesn't resolve it.
+          It is no longer the first or only interpretation of the user's
+          request.
+        </p>
+
+      </section>
+
+
+      <!-- Section 7 -->
+      <section class="block" data-reveal>
+
+        <h2>7. Remembering the last track</h2>
+
+        <p>
+          There was another problem with relying entirely on media-button
+          events.
+        </p>
+
+        <p>
+          Commands such as "play it again" don't contain a track URI.
+          Sending <code>MEDIA_PREVIOUS</code> isn't necessarily the same
+          as replaying the last requested track, and the active media
+          session might no longer be available.
+        </p>
+
+        <p>
+          For short-term context, I added a deterministic
+          <code>MusicSession</code> that remembers the last track's exact
+          URI for five minutes.
+        </p>
+
+        <p>This allows follow-up commands such as:</p>
+
+        <ul>
+          <li>"Play it again."</li>
+          <li>"Play that song."</li>
+          <li>"Play something else."</li>
+        </ul>
+
+        <p>
+          The app can resolve references to the previous track without
+          asking the model to infer the song again.
+        </p>
+
+        <p>
+          Search-first resolution also made it possible to introduce a
+          longer-term listening history.
+        </p>
+
+      </section>
+
+
+      <!-- Section 8 -->
+      <section class="block" data-reveal>
+
+        <h2>8. Building a local listening history</h2>
+
+        <p>
+          Every successfully resolved track provides a title, artist,
+          and Spotify URI.
+        </p>
+
+        <p>
+          LocaLL stores this information in an on-device Room database.
+          There is no listening-history backend; the history stays on
+          the device.
+        </p>
+
+        <p>
+          Once tracks are stored locally, frequency and recency become
+          simple database queries rather than language-model problems.
+        </p>
+
+        <p>This enables commands such as:</p>
+
+        <ul>
+          <li>
+            <strong>"Play my most played"</strong> — retrieves the
+            most-requested track.
+          </li>
+          <li>
+            <strong>"Play my favourite artist"</strong> — retrieves the
+            artist with the highest total request count.
+          </li>
+          <li>
+            <strong>"Play what I was listening to"</strong> — retrieves
+            the most recent play.
+          </li>
+        </ul>
+
+        <p>
+          Each result resolves to a stored URI and goes through the same
+          playback path.
+        </p>
+
+        <p>
+          A fixed catalogue could never answer questions about what the
+          user listened to yesterday. A local history built through
+          actual usage can.
+        </p>
+
+      </section>
+
+
+      <!-- Final architecture -->
+      <section class="block" data-reveal>
+
+        <h2>Result</h2>
+
+        <p>
+          The final implementation separates track resolution, playback,
+          and listening history.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Responsibility</th>
+                <th>Network</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td>Local catalogue</td>
+                <td>Resolve known tracks offline</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Spotify Web API <code>/v1/search</code></td>
+                <td>Resolve requests to track URIs</td>
+                <td>Read-only</td>
+              </tr>
+              <tr>
+                <td>Spotify deep links</td>
+                <td>Open tracks by URI</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Media-button events</td>
+                <td>Control playback</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Accessibility service</td>
+                <td>Fallback search and selection</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Local LLM</td>
+                <td>Extract title and artist when needed</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>MusicSession</td>
+                <td>Five-minute follow-up context</td>
+                <td>None</td>
+              </tr>
+              <tr>
+                <td>Room listening history</td>
+                <td>Store plays and support personal queries</td>
+                <td>None</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>What the final architecture achieves</h3>
+
+        <ul>
+          <li>No user login or user-consent flow.</li>
+          <li>No API calls to start or control playback.</li>
+          <li>One read-only search integration for resolving unknown tracks.</li>
+          <li>Playback remains device-level and best-effort.</li>
+          <li>API credentials are optional, with fallback to the original API-free implementation.</li>
+          <li>Listening history stays on-device.</li>
+        </ul>
+
+      </section>
+
+
+      <!-- Conclusion -->
+      <section class="block" data-reveal>
+
+        <h2>What changed</h2>
+
+        <p>
+          The original goal was to avoid Spotify integration completely.
+          That removed network dependencies, but it also meant relying on
+          an external UI for something as basic as finding the right song.
+        </p>
+
+        <p>
+          The final design uses the API only where it provides real value:
+          resolving a spoken request to an exact track identity.
+        </p>
+
+        <p>
+          Everything else remains on the device.
+        </p>
+
+        <p>
+          The broader lesson is that avoiding an API isn't automatically
+          the simplest or most reliable architecture. Sometimes a small,
+          read-only integration can remove a much larger dependency on
+          UI automation.
+        </p>
+
+        <p>
+          For LocaLL, the right boundary turned out to be simple: use the
+          API to identify the music, but keep playback and personal
+          listening history under local control.
+        </p>
+
+        <div class="takeaway">
+          <strong>The final boundary</strong>
+
+          <p>
+            The API is used only to identify the music. Playback remains
+            device-level and best-effort; personal listening history
+            stays on-device.
+          </p>
+
+          <p>
+            <strong>Takeaway:</strong> Avoiding an API is not automatically
+            the simplest or most reliable architecture. Use the API to
+            identify the music, but keep playback and personal listening
+            history under local control.
+          </p>
+        </div>
+
+      </section>
+
+
+      <!-- Pagination -->
+      <nav class="pager" aria-label="Build log pagination">
+
+        <a href="log-02-local-model.html">
+          &larr; Running a 1B Model on Android CPU
+        </a>
+
+        <a href="log-04-gmail.html">
+          Adding Gmail Without Betraying “Local” &rarr;
+        </a>
+
+      </nav>
+
+    </article>
+  </main>
+
+
+  <!-- Footer -->
+  <footer>
+    <div class="wrap foot">
+
+      <svg
+        class="cat mascot-foot"
+        viewBox="0 0 220 200"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <g class="tail" fill="none" stroke-linecap="round">
+          <path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/>
+          <path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/>
+        </g>
+
+        <polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/>
+        <polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/>
+
+        <polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/>
+        <polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/>
+
+        <ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/>
+
+        <g class="eyes">
+          <ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/>
+          <ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/>
+          <circle cx="82" cy="106" r="4" fill="#fff"/>
+          <circle cx="146" cy="106" r="4" fill="#fff"/>
+        </g>
+
+        <path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/>
+
+        <g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round">
+          <line x1="40" y1="128" x2="8" y2="122"/>
+          <line x1="40" y1="138" x2="8" y2="142"/>
+          <line x1="180" y1="128" x2="212" y2="122"/>
+          <line x1="180" y1="138" x2="212" y2="142"/>
+        </g>
+      </svg>
+
+      <p class="mono">
+        &copy; <span class="yr"></span> Shaarvari S
+      </p>
+
+    </div>
+  </footer>
+
+
+  <!-- Page scripts -->
+  <script>
+    (function () {
+
+      const header = document.querySelector("header.top");
+      const reduceMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+
+      function clamp(value) {
+        return Math.max(0, Math.min(1, value));
+      }
+
+      // Reveal article sections on scroll.
+      const blocks = Array.from(
+        document.querySelectorAll("[data-reveal]")
+      );
+
+      function drawBlocks() {
+        const viewportHeight = window.innerHeight;
+
+        blocks.forEach(function (element) {
+
+          if (reduceMotion) {
+            element.style.opacity = 1;
+            element.style.transform = "none";
+            return;
+          }
+
+          const rect = element.getBoundingClientRect();
+
+          const opacity = clamp(
+            (viewportHeight - rect.top) / (viewportHeight * 0.3)
+          );
+
+          element.style.opacity = opacity;
+
+          element.style.transform =
+            "translateY(" + ((1 - opacity) * 36) + "px)";
+        });
+      }
+
+      let running = false;
+
+      function frame() {
+        drawBlocks();
+        running = false;
+      }
+
+      function kick() {
+        if (header) {
+          header.classList.toggle(
+            "scrolled",
+            window.scrollY > 8
+          );
+        }
+
+        if (!running) {
+          running = true;
+          requestAnimationFrame(frame);
+        }
+      }
+
+      window.addEventListener("scroll", kick, {
+        passive: true
+      });
+
+      window.addEventListener("resize", kick);
+
+      kick();
+
+      // Update footer year.
+      const year = document.querySelector(".yr");
+
+      if (year) {
+        year.textContent = new Date().getFullYear();
+      }
+
+    })();
+  </script>
+
 </body>
 </html>
