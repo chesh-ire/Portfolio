@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Core selection, one inference thread, and a thermal governor that keeps a 1B model fast on the tenth command.">
+<meta name="theme-color" content="#FFF4E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%90%B1%3C/text%3E%3C/svg%3E">
+<title>Keeping a 1B model from throttling the phone · Shaarvari S</title>
+<script>document.documentElement.classList.add("js");</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="log">
+<header class="top"><div class="bar"><a class="brand" href="index.html"><svg class="cat mascot-head" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><span>Shaarvari S</span></a><nav aria-label="Main"><a href="index.html#about">About</a><a href="index.html#experience">Experience</a><a href="index.html#log">Build Log</a><a href="index.html#projects">Projects</a><a href="index.html#open-source">Open Source</a><a href="index.html#skills">Skills</a><a href="index.html#contact">Contact</a></nav></div></header>
+<main>
+<article class="post"><a class="crumb" href="index.html#log">&larr; Build Log</a><header class="post-head" data-reveal><p class="meta mono">02 &middot; Optimization &middot; LocaLL</p><h1>Running a 1B Model on Android CPU: Managing Performance and Thermal Throttling</h1><p class="lede">Running a 1B model locally is straightforward with llama.cpp. Keeping inference responsive as the phone heats up is the harder problem.</p></header><section class="block" data-reveal><h2>The setup</h2><p>LocaLL runs Llama 3.2 1B Q4_K_M entirely on the CPU. The GGUF model is bundled with the APK, so inference works offline without relying on a server or GPU. The goal was to manage CPU usage and thermal throttling during sustained use, not just get the model to run.</p></section><section class="block" data-reveal><h2>Understanding the CPU topology</h2><p>Android devices use heterogeneous CPU cores with different performance characteristics. I added CPU topology detection in the native topology.cpp layer. It reads each core’s maximum frequency from cpufreq and classifies cores relative to the fastest core on the device.</p><pre><code>const double perf_threshold = top_freq * 0.65;</code></pre><p>On my test device, two cores reached 4.47 GHz and six cores reached 3.53 GHz. The six-core cluster runs at roughly 79% of the fastest cluster’s maximum frequency. A 95% threshold would exclude it, even though these cores can handle inference. A 65% threshold includes both performance clusters while excluding the lower-power tier. This is a device-specific heuristic, not a universal Android CPU threshold.</p></section><section class="block" data-reveal><h2>Keeping inference on a dedicated thread</h2><p>InferenceDispatcher.kt uses a dedicated single-thread executor to route native inference calls. CPU affinity applies to the calling thread, so allowing requests to move between arbitrary coroutine-pool threads makes it harder to control which thread receives affinity settings. The executor provides a consistent host thread and serializes requests. This does not make inference single-threaded: llama.cpp manages its own worker threads, which perform parallel computation. The Kotlin executor only controls how requests enter the native layer. Affinity should not be assumed to pin every llama.cpp worker unless it is explicitly applied to those workers or worker creation has been verified.</p></section><section class="block" data-reveal><h2>Tuning decode and prefill separately</h2><p>Decode generates tokens one at a time and is largely memory-bandwidth-bound. Increasing thread count beyond a point provides little benefit. Prefill processes the input prompt and is more compute-intensive, so it benefits from the wider performance cluster. In testing, decode stopped scaling meaningfully beyond four threads. More threads increased CPU activity without proportional improvement, so decode is capped at four threads while prefill can use the available performance cluster. Speech-to-text completes before LLM intent processing starts, so the workloads do not compete for CPU resources at the same time.</p></section><section class="block" data-reveal><h2>Benchmarking thread configurations</h2><p>I added a benchmark harness to compare thread counts and CPU core configurations. Each configuration was tested seven times using a randomized, interleaved schedule with a fixed seed. This reduces bias from temperature changes during longer benchmark runs. Most differences were within the thermal noise floor, so I avoided treating small differences as meaningful. One result was clear: eight decode threads moved the device thermal state from MODERATE to SEVERE. Once the OS reduced CPU frequencies, decode performance dropped to around 0.5 tokens per second. Adding more threads had made performance worse.</p></section><section class="block" data-reveal><h2>Adding a thermal governor</h2><p>ThermalGovernor.kt reads Android thermal status and adjusts decode thread count. As thermal pressure increases, decode parallelism is reduced:</p><div class="table-wrap"><table><thead><tr><th>Thermal status</th><th>Decode threads</th></tr></thead><tbody><tr><td>NONE</td><td>4</td></tr><tr><td>LIGHT</td><td>3</td></tr><tr><td>MODERATE</td><td>2</td></tr><tr><td>SEVERE and above</td><td>1</td></tr></tbody></table></div><p>Only decode thread count is reduced. Prefill continues to use the performance cluster. This does not prevent heating, but avoids continuing with a thread configuration that is already causing severe throttling.</p></section><section class="block" data-reveal><h2>Testing KV cache quantization</h2><p>I tested Q8_0 quantization for the KV cache. Decode performance improved by around 16%, while prefill performance dropped by around 19%. The quantized cache reduces memory-bandwidth requirements but adds dequantization work. Since requests also include prompt processing, overall latency increased for prefill-heavy inputs. I reverted to the default F16 KV cache.</p></section><section class="block" data-reveal><h2>Compiler optimizations</h2><p>Compiler flags had a larger impact than most thread-count changes. I enabled ARM CPU features armv8.2-a+dotprod+i8mm+fp16, improving quantized matrix operations. Depending on the operation and execution path, throughput improved around 2–4x compared with the baseline build. This compile-time optimization has a compatibility trade-off: devices without the required instruction support can fail with an illegal instruction error (SIGILL), even though the app targets arm64.</p></section><section class="block" data-reveal><h2>Result</h2><ul><li>CPU topology detection selects the faster core clusters.</li><li>A dedicated executor serializes native inference requests and gives them a consistent entry thread.</li><li>Decode is capped at four threads during normal operation.</li><li>Thermal status dynamically reduces decode parallelism.</li><li>KV cache quantization was reverted because its decode improvement did not compensate for the prefill regression.</li><li>ARM-specific compiler optimizations provided the largest throughput improvement.</li></ul><div class="takeaway"><strong>Takeaway</strong><p>A configuration that performs well in a short benchmark may not perform well during sustained use. On-device inference needs to account for CPU topology, memory bandwidth and thermal behaviour together.</p></div></section><nav class="pager" aria-label="Build log pagination"><a href="log-01-wake-word.html">&larr; Wake Word Detection Working on Android</a><a href="log-03-spotify.html">Controlling Spotify Reliably &rarr;</a></nav></article>
+</main>
+<footer><div class="wrap foot"><svg class="cat mascot-foot" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><p class="mono">&copy; <span class="yr"></span> Shaarvari S</p></div></footer>
+<script>
+(function(){
+  var header=document.querySelector('header.top');
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function clamp(x){return Math.max(0,Math.min(1,x));}
+
+  // Boulder: follows the page scroll, eased so the motion is smooth
+  var ridge=document.getElementById('ridge');
+  var boulder=document.getElementById('boulder'), cat=document.getElementById('cat');
+  var L=ridge?ridge.getTotalLength():0, R=110, D=230, S0=400, S1=L-160;
+  var target=0, cur=0, running=false;
+  function at(s){return ridge.getPointAtLength(Math.max(0,Math.min(L,s)));}
+  function drawScene(p){
+    if(!ridge) return;
+    var s=S0+p*(S1-S0);
+    var a=at(s), b=at(s+1), tx=b.x-a.x, ty=b.y-a.y, len=Math.hypot(tx,ty)||1;
+    tx/=len; ty/=len;
+    var nx=ty, ny=-tx; if(ny>0){nx=-nx; ny=-ny;}
+    boulder.setAttribute('transform','translate('+(a.x+nx*R)+' '+(a.y+ny*R)+') rotate('+(s/R*180/Math.PI)+')');
+    var f=at(s-D), g=at(s-D+1), ang=Math.atan2(g.y-f.y,g.x-f.x)*180/Math.PI;
+    cat.setAttribute('transform','translate('+f.x+' '+f.y+') rotate('+ang+')');
+  }
+
+  // Content: each block rises in as it enters from the bottom and stays until it has left the top.
+  // It is computed from the scroll position every frame, so it works in both directions.
+  var blocks=[].slice.call(document.querySelectorAll('[data-reveal]'));
+  function drawBlocks(){
+    var vh=window.innerHeight;
+    blocks.forEach(function(el){
+      if(reduce){el.style.opacity=1; el.style.transform='none'; return;}
+      var r=el.getBoundingClientRect();
+      var o=clamp((vh-r.top)/(vh*0.3));
+      el.style.opacity=o;
+      el.style.transform='translateY('+((1-o)*36)+'px)';
+    });
+  }
+
+  function frame(){
+    var max=document.documentElement.scrollHeight-window.innerHeight;
+    target=max>0?clamp(window.scrollY/max):0;
+    cur+=(target-cur)*0.12;
+    if(Math.abs(target-cur)<0.0004) cur=target;
+    drawScene(cur);
+    drawBlocks();
+    if(cur!==target){requestAnimationFrame(frame);} else {running=false;}
+  }
+  function kick(){
+    header.classList.toggle('scrolled',window.scrollY>8);
+    if(!running){running=true; requestAnimationFrame(frame);}
+  }
+  window.addEventListener('scroll',kick,{passive:true});
+  window.addEventListener('resize',kick);
+  kick();
+
+  // Navigation highlight on the home page
+  var links=document.querySelectorAll('header nav a');
+  if(document.body.dataset.page==='home' && 'IntersectionObserver' in window){
+    var map={};links.forEach(function(a){map[a.getAttribute('href').split('#')[1]]=a;});
+    var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&map[e.target.id]){links.forEach(function(a){a.classList.remove('active');});map[e.target.id].classList.add('active');}});},{rootMargin:'-45% 0px -50% 0px'});
+    document.querySelectorAll('section[id]').forEach(function(s){spy.observe(s);});
+  }
+  var yr=document.querySelector('.yr'); if(yr) yr.textContent=new Date().getFullYear();
+})();
+</script>
+</body>
+</html>

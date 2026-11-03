@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Three chained models, a dynamic STFT that overflowed TFLite, and a native library that could exist only once in the APK.">
+<meta name="theme-color" content="#FFF4E6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%90%B1%3C/text%3E%3C/svg%3E">
+<title>The wake word that TFLite couldn't allocate · Shaarvari S</title>
+<script>document.documentElement.classList.add("js");</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="log">
+<header class="top"><div class="bar"><a class="brand" href="index.html"><svg class="cat mascot-head" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><span>Shaarvari S</span></a><nav aria-label="Main"><a href="index.html#about">About</a><a href="index.html#experience">Experience</a><a href="index.html#log">Build Log</a><a href="index.html#projects">Projects</a><a href="index.html#open-source">Open Source</a><a href="index.html#skills">Skills</a><a href="index.html#contact">Contact</a></nav></div></header>
+<main>
+<article class="post"><a class="crumb" href="index.html#log">&larr; Build Log</a><header class="post-head" data-reveal><p class="meta mono">01 &middot; Debugging &middot; LocaLL</p><h1>Wake Word Detection Working on Android</h1><p class="lede">The wake-word detector continuously listens for “Hey LocaLL”. Getting the three-stage openWakeWord pipeline running on Android meant solving dynamic tensor allocation in TFLite and a native ONNX Runtime dependency conflict.</p></header><section class="block" data-reveal><h2>The pipeline</h2><p>Incoming 16 kHz audio passes through three sequential models:</p><div class="flow"><div>16 kHz audio</div><span>&rarr;</span><div>Mel spectrogram</div><span>&rarr;</span><div>96-D embedding</div><span>&rarr;</span><div>Wake-word score</div></div><p>The first two models are shared openWakeWord models. Only the final wake-word model is custom-trained using my own voice.</p></section><section class="block" data-reveal><h2>1. TFLite allocation failure with dynamic input shapes</h2><p>The initial plan was to convert all three models to TensorFlow Lite and run inference directly on Android. The custom wake-word model converted and loaded successfully, but the mel-spectrogram model failed during interpreter allocation. The model uses a Short-Time Fourier Transform (STFT), whose input dimensions are dynamic because incoming audio length is not fixed at conversion time. During conversion, STFT is represented using CONV_2D; the resulting dynamic dimensions caused TFLite to fail while calculating tensor allocation size.</p><pre><code>java.lang.IllegalStateException:
+Internal error: Failed to allocate memory for the melspectrogram model:
+BytesRequired number of elements overflowed</code></pre><p>I tested TFLite 2.16.1 and 2.17.0, including different resizeInput() configurations with strict mode enabled. Resizing did not resolve the unbounded dimensions in the STFT operation. I moved the pipeline to ONNX Runtime, which handled dynamic input shapes correctly. The wake-word model accepts the expected [1, 16, 96] shape, avoiding additional axis transposition.</p></section><section class="block" data-reveal><h2>2. ONNX Runtime dependency conflict</h2><p>LocaLL already uses sherpa-onnx for on-device Piper text-to-speech. Sherpa-onnx bundles its own libonnxruntime.so. Integrating Microsoft’s ONNX Runtime Android Maven AAR introduced a conflict because both dependencies package a native library with the same name. Sherpa bundles ONNX Runtime 1.28.2, while Microsoft’s AAR provides 1.28.0. The JNI bridge expects symbols from its corresponding runtime version.</p><pre><code>java.lang.UnsatisfiedLinkError:
+cannot locate symbol "OrtGetApiBase@VERS_1.28.2"
+referenced by libonnxruntime4j_jni.so</code></pre><p>Excluding one native library would not solve the issue: the JNI bridge and ONNX Runtime core need compatible versioned native symbols.</p></section><section class="block" data-reveal><h2>Resolution: reuse the runtime already bundled by sherpa-onnx</h2><p>Rather than adding another ONNX Runtime dependency, I reused the version already bundled by sherpa-onnx. I aligned the Java bindings and JNI library with sherpa’s existing runtime version (1.28.2), using onnxruntime-1.28.2.jar and the corresponding libonnxruntime4j_jni.so from the community Android build. Both TTS and wake-word detection now use the same libonnxruntime.so. ONNX Runtime is effectively a shared native dependency in the APK; every feature using it must agree on the runtime version and matching JNI bindings.</p></section><section class="block" data-reveal><h2>3. Running the detector continuously</h2><p>Wake-word detection needs to run continuously, so inference overhead matters. I configured ONNX Runtime with one inference thread (intraOpNumThreads = 1) and ran the detector on a background thread with reduced priority so it would not compete unnecessarily with foreground work. The detector processes audio continuously and evaluates the confidence score against a threshold.</p><div class="table-wrap"><table><thead><tr><th>Metric</th><th>Result</th></tr></thead><tbody><tr><td>Wake-word score</td><td>0.988</td></tr><tr><td>Detection threshold</td><td>0.5</td></tr><tr><td>Background noise score</td><td>~0.0005</td></tr><tr><td>ONNX Runtime version</td><td>1.28.2</td></tr><tr><td>Inference threads</td><td>1</td></tr><tr><td>CPU usage</td><td>~1%</td></tr></tbody></table></div></section><section class="block" data-reveal><h2>Result</h2><p>The main challenges were not training the wake-word model. They were running preprocessing with dynamic input shapes and integrating another ONNX-based feature without native-library conflicts. Moving to ONNX Runtime solved the first problem; reusing sherpa-onnx’s runtime and matching its JNI bindings solved the second. Both wake-word detection and text-to-speech now share one ONNX Runtime installation, while the detector continuously processes audio with low measured CPU usage.</p><div class="takeaway"><strong>Takeaway</strong><p>On Android, on-device ML integration involves more than getting a model to run. Runtime compatibility, native library packaging, thread configuration and resource usage all matter when multiple ML features coexist.</p></div></section><nav class="pager" aria-label="Build log pagination"><span></span><a href="log-02-local-model.html">Running a 1B Model on Android CPU &rarr;</a></nav></article>
+</main>
+<footer><div class="wrap foot"><svg class="cat mascot-foot" viewBox="0 0 220 200" aria-hidden="true" focusable="false"><g class="tail" fill="none" stroke-linecap="round"><path d="M175 165 Q215 170 205 120" stroke="#2B2118" stroke-width="16"/><path d="M175 165 Q215 170 205 120" style="stroke:var(--cat)" stroke-width="9"/></g><polygon points="45,75 62,18 100,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="175,75 158,18 120,58" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4" stroke-linejoin="round"/><polygon points="55,67 64,36 88,58" style="fill:var(--pink)"/><polygon points="165,67 156,36 132,58" style="fill:var(--pink)"/><ellipse cx="110" cy="122" rx="88" ry="68" style="fill:var(--cat)" stroke="#2B2118" stroke-width="4"/><g class="eyes"><ellipse cx="78" cy="112" rx="11" ry="15" fill="#2B2118"/><ellipse cx="142" cy="112" rx="11" ry="15" fill="#2B2118"/><circle cx="82" cy="106" r="4" fill="#fff"/><circle cx="146" cy="106" r="4" fill="#fff"/></g><path d="M104 134 h12 l-6 7z" style="fill:var(--pink)" stroke="#2B2118" stroke-width="2.5" stroke-linejoin="round"/><path d="M110 141 q-7 9 -15 3 M110 141 q7 9 15 3" fill="none" stroke="#2B2118" stroke-width="3" stroke-linecap="round"/><g stroke="#2B2118" stroke-width="2.5" stroke-linecap="round"><line x1="40" y1="128" x2="8" y2="122"/><line x1="40" y1="138" x2="8" y2="142"/><line x1="180" y1="128" x2="212" y2="122"/><line x1="180" y1="138" x2="212" y2="142"/></g></svg><p class="mono">&copy; <span class="yr"></span> Shaarvari S</p></div></footer>
+<script>
+(function(){
+  var header=document.querySelector('header.top');
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function clamp(x){return Math.max(0,Math.min(1,x));}
+
+  // Boulder: follows the page scroll, eased so the motion is smooth
+  var ridge=document.getElementById('ridge');
+  var boulder=document.getElementById('boulder'), cat=document.getElementById('cat');
+  var L=ridge?ridge.getTotalLength():0, R=110, D=230, S0=400, S1=L-160;
+  var target=0, cur=0, running=false;
+  function at(s){return ridge.getPointAtLength(Math.max(0,Math.min(L,s)));}
+  function drawScene(p){
+    if(!ridge) return;
+    var s=S0+p*(S1-S0);
+    var a=at(s), b=at(s+1), tx=b.x-a.x, ty=b.y-a.y, len=Math.hypot(tx,ty)||1;
+    tx/=len; ty/=len;
+    var nx=ty, ny=-tx; if(ny>0){nx=-nx; ny=-ny;}
+    boulder.setAttribute('transform','translate('+(a.x+nx*R)+' '+(a.y+ny*R)+') rotate('+(s/R*180/Math.PI)+')');
+    var f=at(s-D), g=at(s-D+1), ang=Math.atan2(g.y-f.y,g.x-f.x)*180/Math.PI;
+    cat.setAttribute('transform','translate('+f.x+' '+f.y+') rotate('+ang+')');
+  }
+
+  // Content: each block rises in as it enters from the bottom and stays until it has left the top.
+  // It is computed from the scroll position every frame, so it works in both directions.
+  var blocks=[].slice.call(document.querySelectorAll('[data-reveal]'));
+  function drawBlocks(){
+    var vh=window.innerHeight;
+    blocks.forEach(function(el){
+      if(reduce){el.style.opacity=1; el.style.transform='none'; return;}
+      var r=el.getBoundingClientRect();
+      var o=clamp((vh-r.top)/(vh*0.3));
+      el.style.opacity=o;
+      el.style.transform='translateY('+((1-o)*36)+'px)';
+    });
+  }
+
+  function frame(){
+    var max=document.documentElement.scrollHeight-window.innerHeight;
+    target=max>0?clamp(window.scrollY/max):0;
+    cur+=(target-cur)*0.12;
+    if(Math.abs(target-cur)<0.0004) cur=target;
+    drawScene(cur);
+    drawBlocks();
+    if(cur!==target){requestAnimationFrame(frame);} else {running=false;}
+  }
+  function kick(){
+    header.classList.toggle('scrolled',window.scrollY>8);
+    if(!running){running=true; requestAnimationFrame(frame);}
+  }
+  window.addEventListener('scroll',kick,{passive:true});
+  window.addEventListener('resize',kick);
+  kick();
+
+  // Navigation highlight on the home page
+  var links=document.querySelectorAll('header nav a');
+  if(document.body.dataset.page==='home' && 'IntersectionObserver' in window){
+    var map={};links.forEach(function(a){map[a.getAttribute('href').split('#')[1]]=a;});
+    var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&map[e.target.id]){links.forEach(function(a){a.classList.remove('active');});map[e.target.id].classList.add('active');}});},{rootMargin:'-45% 0px -50% 0px'});
+    document.querySelectorAll('section[id]').forEach(function(s){spy.observe(s);});
+  }
+  var yr=document.querySelector('.yr'); if(yr) yr.textContent=new Date().getFullYear();
+})();
+</script>
+</body>
+</html>
